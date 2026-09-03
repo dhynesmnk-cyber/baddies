@@ -90,6 +90,131 @@ select {
   margin-bottom: 12px;
 }
 
+/* ---------- the gate ---------- */
+
+.gate {
+  text-align: center;
+}
+
+.who-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 20px 0 6px;
+}
+
+.who-card {
+  display: grid;
+  gap: 10px;
+  place-items: center;
+  padding: 22px 12px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: #0f0f13;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 1.05rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  transition: transform 120ms ease, border-color 160ms ease, box-shadow 220ms ease;
+}
+
+.who-card:hover,
+.who-card:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--who);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+.who-initial {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.6rem;
+  color: #12100a;
+  background: var(--who);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--who) 45%, transparent);
+}
+
+.pin-dots {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin: 18px 0 20px;
+}
+
+.pin-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.pin-dot.filled {
+  background: var(--who, var(--gold));
+  border-color: var(--who, var(--gold));
+  transform: scale(1.18);
+}
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.key {
+  padding: 16px 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #101014;
+  color: var(--text);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: transform 90ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.key:hover {
+  border-color: var(--who, var(--gold));
+}
+
+.key:active {
+  transform: scale(0.95);
+  background: #17171d;
+}
+
+.key.ghost {
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.gate-who {
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--who, var(--gold));
+}
+
+.shake {
+  animation: shake 420ms ease;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-8px); }
+  40%, 60% { transform: translateX(8px); }
+}
+
 .field label {
   color: var(--muted);
 }
@@ -1253,45 +1378,19 @@ h3 {
 </section>
 
 <section id="authScreen" class="full-screen hidden">
-  <div class="panel">
+  <div class="panel gate">
     <h1>Becoming Baddies</h1>
-    <p>Sign in with your Supabase account.</p>
+    <p id="gatePrompt">Who is training?</p>
 
-    <div class="field">
-      <label for="authEmail">Email</label>
-      <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com">
-    </div>
+    <div id="whoStep" class="who-grid"></div>
 
-    <div class="field">
-      <label for="authPassword">Password</label>
-      <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password">
-    </div>
-
-    <div class="row">
-      <button id="signInBtn" class="btn" type="button">Sign in</button>
-      <button id="signUpBtn" class="btn secondary" type="button">Sign up</button>
+    <div id="pinStep" class="hidden">
+      <div id="pinDots" class="pin-dots"></div>
+      <div id="keypad" class="keypad"></div>
+      <button id="pinBackBtn" class="btn secondary" type="button">Not me</button>
     </div>
 
     <p id="authStatus" class="empty"></p>
-  </div>
-</section>
-
-<section id="profileScreen" class="full-screen hidden">
-  <div class="panel">
-    <h1>Create your profile</h1>
-    <p>You are signed in. Create your profile name. Use your actual name so Angus and Dave can compare properly.</p>
-
-    <div class="field">
-      <label for="profileNameInput">Profile name</label>
-      <input id="profileNameInput" type="text" placeholder="Example: Angus">
-    </div>
-
-    <div class="row">
-      <button id="createProfileBtn" class="btn" type="button">Create profile</button>
-      <button id="profileSignOutBtn" class="btn secondary" type="button">Sign out</button>
-    </div>
-
-    <p id="profileStatus" class="empty"></p>
   </div>
 </section>
 
@@ -1466,6 +1565,22 @@ const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
 
 const CONFIG_STORAGE_KEY = "becoming-baddies-config";
 
+/* There is no sign up. These two are the app. Both unlock with the same PIN,
+   and sql/users.sql creates the matching Supabase logins. */
+const BADDIES = [
+  { name: "Dave", email: "dave@becomingbaddies.local", color: "#7fd1c0" },
+  { name: "Angus", email: "angus@becomingbaddies.local", color: "#d7b45a" }
+];
+
+const PIN_LENGTH = 4;
+
+/* Supabase requires at least 6 characters, so a 4 digit PIN cannot be the
+   password itself. Only this recipe ships in the page; the PIN never does,
+   so reading the source is not enough to get in. */
+function passwordForPin(pin) {
+  return `${pin}-becoming-baddies`;
+}
+
 const DAY_ORDER = [
   { id: "monday", label: "Monday", short: "Mon" },
   { id: "tuesday", label: "Tuesday", short: "Tue" },
@@ -1499,6 +1614,10 @@ let workoutDateValue = todayKey();
 let selectedDayId = dayIdFromDateKey(todayKey());
 let comparePeriod = "8weeks";
 let selectedCompareKey = null;
+
+let selectedBaddie = null;
+let pinEntry = "";
+let pinBusy = false;
 
 let activeTimer = {
   itemId: null,
@@ -1535,19 +1654,16 @@ const setupClearBtn = document.getElementById("setupClearBtn");
 const setupStatus = document.getElementById("setupStatus");
 
 const authScreen = document.getElementById("authScreen");
-const profileScreen = document.getElementById("profileScreen");
 const appScreen = document.getElementById("appScreen");
 
-const authEmail = document.getElementById("authEmail");
-const authPassword = document.getElementById("authPassword");
-const signInBtn = document.getElementById("signInBtn");
-const signUpBtn = document.getElementById("signUpBtn");
+const gatePanel = authScreen.querySelector(".panel");
+const gatePrompt = document.getElementById("gatePrompt");
+const whoStep = document.getElementById("whoStep");
+const pinStep = document.getElementById("pinStep");
+const pinDots = document.getElementById("pinDots");
+const keypad = document.getElementById("keypad");
+const pinBackBtn = document.getElementById("pinBackBtn");
 const authStatus = document.getElementById("authStatus");
-
-const profileNameInput = document.getElementById("profileNameInput");
-const createProfileBtn = document.getElementById("createProfileBtn");
-const profileSignOutBtn = document.getElementById("profileSignOutBtn");
-const profileStatus = document.getElementById("profileStatus");
 
 const headerProfileName = document.getElementById("headerProfileName");
 const headerEmail = document.getElementById("headerEmail");
@@ -1723,7 +1839,6 @@ function el(tag, className, text) {
 function showSetup(message) {
   setupScreen.classList.remove("hidden");
   authScreen.classList.add("hidden");
-  profileScreen.classList.add("hidden");
   appScreen.classList.add("hidden");
 
   if (message) {
@@ -1734,29 +1849,18 @@ function showSetup(message) {
 function showAuth(message) {
   setupScreen.classList.add("hidden");
   authScreen.classList.remove("hidden");
-  profileScreen.classList.add("hidden");
   appScreen.classList.add("hidden");
+
+  showWhoStep();
 
   if (message) {
     authStatus.textContent = message;
   }
 }
 
-function showProfileScreen(message) {
-  setupScreen.classList.add("hidden");
-  authScreen.classList.add("hidden");
-  profileScreen.classList.remove("hidden");
-  appScreen.classList.add("hidden");
-
-  if (message) {
-    profileStatus.textContent = message;
-  }
-}
-
 function showApp() {
   setupScreen.classList.add("hidden");
   authScreen.classList.add("hidden");
-  profileScreen.classList.add("hidden");
   appScreen.classList.remove("hidden");
 }
 
@@ -1791,7 +1895,8 @@ async function handleSession(nextSession) {
     myProfile = profiles.find((profile) => profile.owner_id === authUserId) || null;
 
     if (!myProfile) {
-      showProfileScreen("No profile found for this login yet.");
+      await supabaseClient.auth.signOut();
+      showAuth("Signed in, but no profile is linked to that login. Run sql/users.sql in Supabase.");
       return;
     }
 
@@ -1869,74 +1974,180 @@ function renderHeader() {
 
 /* ---------- auth ---------- */
 
-signInBtn.addEventListener("click", async () => {
+function setGateAccent(color) {
+  gatePanel.style.setProperty("--who", color || "var(--gold)");
+}
+
+function showWhoStep() {
+  selectedBaddie = null;
+  pinEntry = "";
+  pinBusy = false;
+
+  whoStep.classList.remove("hidden");
+  pinStep.classList.add("hidden");
+  gatePrompt.textContent = "Who is training?";
+  setGateAccent(null);
+}
+
+function renderWhoStep() {
+  whoStep.innerHTML = "";
+
+  BADDIES.forEach((baddie) => {
+    const card = el("button", "who-card");
+    card.type = "button";
+    card.style.setProperty("--who", baddie.color);
+
+    const initial = el("span", "who-initial", baddie.name.slice(0, 1));
+
+    card.append(initial, el("span", "", baddie.name));
+    card.addEventListener("click", () => startPinFor(baddie));
+
+    whoStep.appendChild(card);
+  });
+}
+
+function renderPinDots() {
+  pinDots.innerHTML = "";
+
+  for (let i = 0; i < PIN_LENGTH; i += 1) {
+    pinDots.appendChild(el("div", "pin-dot" + (i < pinEntry.length ? " filled" : "")));
+  }
+}
+
+function renderKeypad() {
+  keypad.innerHTML = "";
+
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"];
+
+  keys.forEach((key) => {
+    const isGhost = key === "clear" || key === "back";
+    const button = el("button", "key" + (isGhost ? " ghost" : ""), key === "back" ? "\u232B" : key === "clear" ? "Clear" : key);
+    button.type = "button";
+    button.dataset.key = key;
+    keypad.appendChild(button);
+  });
+}
+
+function startPinFor(baddie) {
+  selectedBaddie = baddie;
+  pinEntry = "";
+  pinBusy = false;
+
+  whoStep.classList.add("hidden");
+  pinStep.classList.remove("hidden");
+
+  gatePrompt.innerHTML = "";
+  gatePrompt.append(
+    document.createTextNode("PIN for "),
+    el("span", "gate-who", baddie.name)
+  );
+
+  setGateAccent(baddie.color);
+  authStatus.textContent = "";
+  renderPinDots();
+}
+
+function rejectPin(message) {
+  pinBusy = false;
+  pinEntry = "";
+  renderPinDots();
+
+  authStatus.textContent = message;
+
+  gatePanel.classList.remove("shake");
+  void gatePanel.offsetWidth;
+  gatePanel.classList.add("shake");
+}
+
+async function submitPin() {
+  if (!selectedBaddie || pinBusy) return;
+
+  pinBusy = true;
+  authStatus.textContent = "Checking...";
+
   try {
     const { error } = await supabaseClient.auth.signInWithPassword({
-      email: authEmail.value.trim(),
-      password: authPassword.value
+      email: selectedBaddie.email,
+      password: passwordForPin(pinEntry)
     });
 
-    if (error) throw error;
+    if (error) {
+      const wrong = /invalid login credentials/i.test(error.message || "");
+
+      rejectPin(
+        wrong
+          ? "Wrong PIN, or the two logins do not exist yet. Run sql/users.sql in Supabase."
+          : error.message || String(error)
+      );
+
+      return;
+    }
 
     authStatus.textContent = "";
   } catch (error) {
-    authStatus.textContent = error.message || String(error);
+    rejectPin(error.message || String(error));
+  }
+}
+
+function pressPinKey(key) {
+  if (pinBusy) return;
+
+  if (key === "back") {
+    pinEntry = pinEntry.slice(0, -1);
+    renderPinDots();
+    return;
+  }
+
+  if (key === "clear") {
+    pinEntry = "";
+    renderPinDots();
+    return;
+  }
+
+  if (!/^[0-9]$/.test(key) || pinEntry.length >= PIN_LENGTH) return;
+
+  pinEntry += key;
+  renderPinDots();
+
+  if (pinEntry.length === PIN_LENGTH) {
+    submitPin();
+  }
+}
+
+keypad.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-key]");
+
+  if (button) pressPinKey(button.dataset.key);
+});
+
+pinBackBtn.addEventListener("click", () => {
+  authStatus.textContent = "";
+  showWhoStep();
+});
+
+/* A keyboard is faster than tapping when you are on a laptop. */
+document.addEventListener("keydown", (event) => {
+  if (authScreen.classList.contains("hidden")) return;
+  if (pinStep.classList.contains("hidden")) return;
+
+  if (/^[0-9]$/.test(event.key)) {
+    pressPinKey(event.key);
+    return;
+  }
+
+  if (event.key === "Backspace") {
+    event.preventDefault();
+    pressPinKey("back");
+    return;
+  }
+
+  if (event.key === "Escape") {
+    showWhoStep();
   }
 });
 
-signUpBtn.addEventListener("click", async () => {
-  try {
-    const { data, error } = await supabaseClient.auth.signUp({
-      email: authEmail.value.trim(),
-      password: authPassword.value
-    });
-
-    if (error) throw error;
-
-    if (!data.session) {
-      authStatus.textContent = "Sign up complete. Check your email if confirmation is enabled.";
-    }
-  } catch (error) {
-    authStatus.textContent = error.message || String(error);
-  }
-});
-
-createProfileBtn.addEventListener("click", async () => {
-  try {
-    const name = profileNameInput.value.trim();
-
-    if (!name) {
-      profileStatus.textContent = "Enter a profile name.";
-      return;
-    }
-
-    const { error } = await supabaseClient
-      .from("profiles")
-      .insert({
-        owner_id: authUserId,
-        name
-      });
-
-    if (error) throw error;
-
-    await loadProfiles();
-    myProfile = profiles.find((profile) => profile.owner_id === authUserId) || null;
-
-    if (!myProfile) {
-      profileStatus.textContent = "Profile created but could not be loaded.";
-      return;
-    }
-
-    await enterApp();
-  } catch (error) {
-    profileStatus.textContent = error.message || String(error);
-  }
-});
-
-profileSignOutBtn.addEventListener("click", async () => {
-  await supabaseClient.auth.signOut();
-  window.location.reload();
-});
+renderWhoStep();
+renderKeypad();
 
 signOutBtn.addEventListener("click", async () => {
   await supabaseClient.auth.signOut();
