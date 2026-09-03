@@ -8,7 +8,8 @@ file with no build step.
 
 ```
 becoming-baddies-supabase.html   the whole app
-sql/schema.sql                   tables, indexes, RLS policies, seed activities
+sql/schema.sql                   tables, indexes, RLS policies, seed activities, realtime
+sql/realtime.sql                 realtime only, for projects created before live sync
 index.html                       redirect, so static hosts serve the app at /
 ```
 
@@ -26,6 +27,8 @@ index.html                       redirect, so static hosts serve the app at /
 - **Compare** - head to head banner, per person totals, a 12 week consistency heatmap, a
   per activity breakdown with horizontal bars, and a grouped weekly bar chart for whichever
   activity you tap.
+- **Live sync** - both screens update as the other person trains, with no refresh. A `LIVE`
+  badge in the header shows the connection state.
 
 ### Visuals
 
@@ -38,6 +41,28 @@ index.html                       redirect, so static hosts serve the app at /
 - Timer progress bar against the target, and a pulsing display while running.
 - Head to head tug of war bar, crown for the leader, and per metric leader highlighting.
 - GitHub style consistency heatmap per person, tinted in that person's colour.
+
+### Live sync
+
+Supabase Realtime streams every change to `logs`, `routine_items`, `activities` and
+`profiles` to both signed in browsers. Row level security applies to the stream, so it
+carries exactly what each user is allowed to read.
+
+The rule the UI follows is that a live update never costs you work in progress:
+
+- A running timer keeps running, and a distance you have typed but not saved is preserved
+  across a rebuild.
+- Your own logs arriving from another device patch the affected card in place - checkboxes,
+  completion glow, stats and the day ring - rather than rebuilding the screen.
+- A routine change that arrives mid set is deferred, with a note in the status bar, and
+  applied as soon as you are no longer mid interaction.
+- Bursts are coalesced, so the other person ticking eight sets costs one render.
+- Their activity raises at most one status message a minute, so it stays useful rather than
+  chatty.
+
+If the socket drops, the badge turns to `Offline` and reconnects with backoff. Because
+events that happen while disconnected are gone for good, every reconnect and every return
+to the tab refetches rather than trusting the local copy.
 
 ### Scoring
 
@@ -56,8 +81,10 @@ in Compare is like for like: sets against sets, km against km, minutes against m
 
 1. Create a Supabase project.
 2. Open the **SQL Editor** and run [`sql/schema.sql`](sql/schema.sql). It creates the
-   tables, enables row level security, adds the policies and seeds the starter activity
-   library.
+   tables, enables row level security, adds the policies, seeds the starter activity
+   library and enables Realtime. If your project predates live sync, run
+   [`sql/realtime.sql`](sql/realtime.sql) instead; it is idempotent and touches nothing
+   else.
 3. For quick testing, turn off email confirmation under **Authentication, Providers,
    Email**. If you leave confirmation on, each user has to confirm their email before they
    can sign in.
@@ -93,8 +120,6 @@ what actually protects the data, which is why step 2 is not optional.
 
 - The Compare screen loads every log row. That is fine for two people and years of
   training; it would need pagination for a crowd.
-- Data does not live update between devices. Refresh to pull in the other person's work.
-  Supabase Realtime would be the next step.
 - The workout screen is a card list, not a swipe deck. Swipe is presentation, and it adds
   failure modes when every interaction is a database write. Worth adding once persistence
   has proven itself.
