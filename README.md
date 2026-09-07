@@ -8,9 +8,18 @@ file with no build step.
 
 ```
 becoming-baddies-supabase.html   the whole app
-sql/schema.sql                   tables, indexes, RLS policies, seed activities
+sql/schema.sql                   tables, indexes, RLS policies, seed activities, realtime
+sql/users.sql                    the two fixed logins and their profiles
+sql/realtime.sql                 realtime only, for projects created before live sync
 index.html                       redirect, so static hosts serve the app at /
 ```
+
+## Getting in
+
+There is no sign up and no email. Open the app, tap **Dave** or **Angus**, and key in the
+4 digit PIN. The session is remembered, so day to day you just open it and train.
+
+Both names unlock with **9876** out of the box.
 
 ## What it does
 
@@ -26,6 +35,8 @@ index.html                       redirect, so static hosts serve the app at /
 - **Compare** - head to head banner, per person totals, a 12 week consistency heatmap, a
   per activity breakdown with horizontal bars, and a grouped weekly bar chart for whichever
   activity you tap.
+- **Live sync** - both screens update as the other person trains, with no refresh. A `LIVE`
+  badge in the header shows the connection state.
 
 ### Visuals
 
@@ -38,6 +49,28 @@ index.html                       redirect, so static hosts serve the app at /
 - Timer progress bar against the target, and a pulsing display while running.
 - Head to head tug of war bar, crown for the leader, and per metric leader highlighting.
 - GitHub style consistency heatmap per person, tinted in that person's colour.
+
+### Live sync
+
+Supabase Realtime streams every change to `logs`, `routine_items`, `activities` and
+`profiles` to both signed in browsers. Row level security applies to the stream, so it
+carries exactly what each user is allowed to read.
+
+The rule the UI follows is that a live update never costs you work in progress:
+
+- A running timer keeps running, and a distance you have typed but not saved is preserved
+  across a rebuild.
+- Your own logs arriving from another device patch the affected card in place - checkboxes,
+  completion glow, stats and the day ring - rather than rebuilding the screen.
+- A routine change that arrives mid set is deferred, with a note in the status bar, and
+  applied as soon as you are no longer mid interaction.
+- Bursts are coalesced, so the other person ticking eight sets costs one render.
+- Their activity raises at most one status message a minute, so it stays useful rather than
+  chatty.
+
+If the socket drops, the badge turns to `Offline` and reconnects with backoff. Because
+events that happen while disconnected are gone for good, every reconnect and every return
+to the tab refetches rather than trusting the local copy.
 
 ### Scoring
 
@@ -56,11 +89,13 @@ in Compare is like for like: sets against sets, km against km, minutes against m
 
 1. Create a Supabase project.
 2. Open the **SQL Editor** and run [`sql/schema.sql`](sql/schema.sql). It creates the
-   tables, enables row level security, adds the policies and seeds the starter activity
-   library.
-3. For quick testing, turn off email confirmation under **Authentication, Providers,
-   Email**. If you leave confirmation on, each user has to confirm their email before they
-   can sign in.
+   tables, enables row level security, adds the policies, seeds the starter activity
+   library and enables Realtime. If your project predates live sync, run
+   [`sql/realtime.sql`](sql/realtime.sql) instead; it is idempotent and touches nothing
+   else.
+3. Run [`sql/users.sql`](sql/users.sql). It creates the two logins, sets both PINs to
+   9876, and links a profile to each. If it errors on your Supabase version, the file
+   explains the two minute dashboard alternative.
 4. Point the app at your project, either way:
    - **Edit the file.** Replace these two lines near the top of the `<script>` block:
      ```js
@@ -69,16 +104,38 @@ in Compare is like for like: sets against sets, km against km, minutes against m
      ```
    - **Or paste at runtime.** Leave the placeholders and open the file. A setup screen asks
      for the project URL and anon key and stores them in that browser's local storage.
-5. Open `becoming-baddies-supabase.html`, sign up, and enter a profile name. Use real
-   names, `Dave` and `Angus`, so the colours and comparisons line up.
+5. Open `becoming-baddies-supabase.html`, tap your name and key in **9876**.
 6. On the Routine screen, hit **Load starter week** for a three day starting plan, then
    edit it.
 
 The anon key is a public key. It is designed to ship in the browser. Row level security is
 what actually protects the data, which is why step 2 is not optional.
 
+## The PIN
+
+Supabase enforces a minimum password length of 6, so `9876` cannot be the password itself.
+The app turns what you type into the real password by appending a fixed suffix:
+
+```
+password = <pin> + "-becoming-baddies"
+```
+
+Only that recipe is in the published HTML. The PIN never is, so reading the page source is
+not enough to get in.
+
+**To change the PIN**, edit `new_pin` at the top of `sql/users.sql` and run it again. The
+app needs no change.
+
+Two honest limits. The same PIN unlocks both names, so either of you could tap the other's
+card and log as them — it is a friendly gate between two mates, not a wall. If you want
+that closed, give each account its own password (`1234-becoming-baddies` for one,
+`5678-becoming-baddies` for the other) and the app handles it with no code change. And a
+4 digit PIN is only 10,000 guesses, so it keeps out a passer by, not a determined attacker.
+For two people tracking press ups, that is the right trade.
+
 ## Security model
 
+- The two logins are fixed. There is no sign up, so nobody can add themselves.
 - Everyone signed in can **read** all profiles, routines and logs. That is the point of a
   two person competition.
 - You can only **write** rows tied to your own profile. Writes are checked server side by
@@ -93,8 +150,6 @@ what actually protects the data, which is why step 2 is not optional.
 
 - The Compare screen loads every log row. That is fine for two people and years of
   training; it would need pagination for a crowd.
-- Data does not live update between devices. Refresh to pull in the other person's work.
-  Supabase Realtime would be the next step.
 - The workout screen is a card list, not a swipe deck. Swipe is presentation, and it adds
   failure modes when every interaction is a database write. Worth adding once persistence
   has proven itself.
