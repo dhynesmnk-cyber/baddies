@@ -8,9 +8,9 @@ file with no build step.
 
 ```
 becoming-baddies-supabase.html   the whole app
-sql/schema.sql                   tables, indexes, RLS policies, seed activities, realtime
+sql/schema.sql                   tables, indexes, RLS policies, seed activities
 sql/users.sql                    the two fixed logins and their profiles
-sql/realtime.sql                 realtime only, for projects created before live sync
+sql/realtime.sql                 optional, only if you want live sync back
 index.html                       redirect, so static hosts serve the app at /
 ```
 
@@ -35,8 +35,8 @@ Both names unlock with **9876** out of the box.
 - **Compare** - head to head banner, per person totals, a 12 week consistency heatmap, a
   per activity breakdown with horizontal bars, and a grouped weekly bar chart for whichever
   activity you tap.
-- **Live sync** - both screens update as the other person trains, with no refresh. A `LIVE`
-  badge in the header shows the connection state.
+- **Refresh** - the app loads everything on sign in and then leaves the screen alone. A
+  `Refresh` button in the header pulls the other person's training in when you want it.
 
 ### Visuals
 
@@ -50,27 +50,22 @@ Both names unlock with **9876** out of the box.
 - Head to head tug of war bar, crown for the leader, and per metric leader highlighting.
 - GitHub style consistency heatmap per person, tinted in that person's colour.
 
-### Live sync
+### Refreshing
 
-Supabase Realtime streams every change to `logs`, `routine_items`, `activities` and
-`profiles` to both signed in browsers. Row level security applies to the stream, so it
-carries exactly what each user is allowed to read.
+Data is fetched once at sign in. Nothing polls, and nothing re-renders behind your back, so
+the screen only ever changes because you changed it. **Refresh** in the header refetches
+profiles, activities, routines and logs, and redraws every screen.
 
-The rule the UI follows is that a live update never costs you work in progress:
+Two things a refresh will not take from you:
 
-- A running timer keeps running, and a distance you have typed but not saved is preserved
-  across a rebuild.
-- Your own logs arriving from another device patch the affected card in place - checkboxes,
-  completion glow, stats and the day ring - rather than rebuilding the screen.
-- A routine change that arrives mid set is deferred, with a note in the status bar, and
-  applied as soon as you are no longer mid interaction.
-- Bursts are coalesced, so the other person ticking eight sets costs one render.
-- Their activity raises at most one status message a minute, so it stays useful rather than
-  chatty.
+- A running timer. The workout list rebuild is held until you pause, reset or finish,
+  and the status bar says so. Everything else redraws immediately.
+- A distance you have typed but not saved. It survives the rebuild.
 
-If the socket drops, the badge turns to `Offline` and reconnects with backoff. Because
-events that happen while disconnected are gone for good, every reconnect and every return
-to the tab refetches rather than trusting the local copy.
+An earlier version pushed changes between the two phones over Supabase Realtime. It worked,
+but a socket that reconnects is a screen that redraws on its own, and for two people
+training at different times that was noise rather than a feature. The database side of it
+still exists in [`sql/realtime.sql`](sql/realtime.sql) if it is ever wanted back.
 
 ### Scoring
 
@@ -90,9 +85,7 @@ in Compare is like for like: sets against sets, km against km, minutes against m
 1. Create a Supabase project.
 2. Open the **SQL Editor** and run [`sql/schema.sql`](sql/schema.sql). It creates the
    tables, enables row level security, adds the policies, seeds the starter activity
-   library and enables Realtime. If your project predates live sync, run
-   [`sql/realtime.sql`](sql/realtime.sql) instead; it is idempotent and touches nothing
-   else.
+   library.
 3. Run [`sql/users.sql`](sql/users.sql). It creates the two logins, sets both PINs to
    9876, and links a profile to each. If it errors on your Supabase version, the file
    explains the two minute dashboard alternative.
@@ -157,3 +150,5 @@ For two people tracking press ups, that is the right trade.
   has proven itself.
 - Deleting a library activity leaves existing routine items and logs intact, keeping their
   saved name and type. History survives on purpose.
+- Nothing updates between the two phones on its own. If you want to see what the other
+  person has done, press Refresh.

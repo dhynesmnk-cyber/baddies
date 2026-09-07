@@ -1,9 +1,10 @@
 -- Becoming Baddies - enable Realtime
 --
--- Run this once in the Supabase SQL Editor. It is safe to run repeatedly.
--- New projects get this automatically: the same block is at the end of
--- sql/schema.sql. This standalone file is for projects created before live
--- sync was added.
+-- The app does not use this. It refreshes on sign in and when you press the
+-- Refresh button, and nothing streams between the two phones. This file is
+-- kept so live sync can be turned back on without redoing the database work.
+--
+-- Run it once in the Supabase SQL Editor. It is safe to run repeatedly.
 --
 -- Two things are needed for live sync:
 --
