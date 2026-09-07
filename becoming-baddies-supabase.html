@@ -1555,13 +1555,16 @@ h3 {
    Becoming Baddies
    Single file front end for the Supabase schema in sql/schema.sql.
 
-   Either hard code the two constants below, or leave the placeholders
-   and paste the project URL and anon key into the setup screen. The
-   anon key is a public key. Row level security is what protects data.
+   The project URL and anon key below are baked in, so the app opens
+   straight on the name and PIN screen on any device. The anon key is a
+   public key, safe to publish. Row level security is what protects data.
+
+   Leaving the placeholders in instead falls back to a setup screen that
+   stores the pair in that one browser.
    ------------------------------------------------------------------ */
 
-const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+const SUPABASE_URL = "https://xnxkryblsldaaqhigozs.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhueGtyeWJsc2xkYWFxaGlnb3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0NTI3NTUsImV4cCI6MjEwNDAyODc1NX0.LLHuj77ep0C7X0nzdFF0QoIb-9fFi8B7Bct6XLvaxBY";
 
 const CONFIG_STORAGE_KEY = "becoming-baddies-config";
 

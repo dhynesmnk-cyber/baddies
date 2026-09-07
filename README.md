@@ -96,14 +96,16 @@ in Compare is like for like: sets against sets, km against km, minutes against m
 3. Run [`sql/users.sql`](sql/users.sql). It creates the two logins, sets both PINs to
    9876, and links a profile to each. If it errors on your Supabase version, the file
    explains the two minute dashboard alternative.
-4. Point the app at your project, either way:
-   - **Edit the file.** Replace these two lines near the top of the `<script>` block:
-     ```js
-     const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-     const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
-     ```
-   - **Or paste at runtime.** Leave the placeholders and open the file. A setup screen asks
-     for the project URL and anon key and stores them in that browser's local storage.
+4. Point the app at your project by editing these two lines near the top of the
+   `<script>` block:
+   ```js
+   const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
+   const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+   ```
+   Baking them in means every phone, tablet and browser opens straight on the name and
+   PIN screen. Leave the placeholders instead and the app shows a setup screen that asks
+   for the pair and stores it in that one browser's local storage, which has to be redone
+   per device.
 5. Open `becoming-baddies-supabase.html`, tap your name and key in **9876**.
 6. On the Routine screen, hit **Load starter week** for a three day starting plan, then
    edit it.
