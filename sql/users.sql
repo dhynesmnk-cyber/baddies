@@ -120,6 +120,49 @@ begin
 end
 $$;
 
+-- ---------------------------------------------------------------------
+-- GoTrue NULL token repair
+-- ---------------------------------------------------------------------
+--
+-- GoTrue reads several auth.users columns into plain Go strings. A row created
+-- by INSERT leaves them NULL, which the driver cannot scan, so signing in fails
+-- with "Database error querying schema" even though the password is correct.
+-- Creating a user through the dashboard sets them to empty string instead.
+--
+-- This sets any that are NULL to ''. Column names differ between Supabase
+-- versions, so each one is checked before it is touched. Safe to re-run.
+
+do $$
+declare
+  col text;
+begin
+  foreach col in array array[
+    'confirmation_token',
+    'recovery_token',
+    'email_change',
+    'email_change_token_new',
+    'email_change_token_current',
+    'phone_change',
+    'phone_change_token',
+    'reauthentication_token'
+  ]
+  loop
+    if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'auth'
+        and table_name = 'users'
+        and column_name = col
+    ) then
+      execute format(
+        'update auth.users set %I = coalesce(%I, '''') where %I is null',
+        col, col, col
+      );
+    end if;
+  end loop;
+end
+$$;
+
 -- Link profiles only. Use this on its own if you created the two users by hand
 -- in the dashboard.
 insert into public.profiles (owner_id, name)
