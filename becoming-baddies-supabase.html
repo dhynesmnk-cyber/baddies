@@ -366,46 +366,6 @@ h1 {
   font-size: 0.9rem;
 }
 
-.live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 0.78rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.live-badge i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.live-badge.live {
-  color: var(--ok);
-  border-color: rgba(127, 209, 138, 0.5);
-}
-
-.live-badge.live i {
-  animation: pulse 2.4s ease-in-out infinite;
-  box-shadow: 0 0 8px currentColor;
-}
-
-.live-badge.connecting {
-  color: var(--gold);
-  border-color: rgba(215, 180, 90, 0.5);
-}
-
-.live-badge.offline {
-  color: #b06a6a;
-  border-color: rgba(176, 106, 106, 0.5);
-}
-
 .top-nav {
   display: flex;
   gap: 8px;
@@ -1400,7 +1360,7 @@ h3 {
       <h1>Becoming Baddies</h1>
       <div class="header-user">
         <span id="headerProfileName" class="badge"></span>
-        <span id="liveStatus" class="live-badge connecting" title="Live sync status"><i></i><span id="liveStatusText">Connecting</span></span>
+        <button id="refreshBtn" class="btn secondary small" type="button">Refresh</button>
         <span id="headerEmail" class="email"></span>
         <button id="signOutBtn" class="btn secondary small" type="button">Sign out</button>
       </div>
@@ -1631,22 +1591,6 @@ let activeTimer = {
 
 let statusTimeout = null;
 
-let realtimeChannel = null;
-let realtimeRetry = null;
-let realtimeAttempts = 0;
-
-/* Renders deferred because the screen is mid-interaction. A live update must
-   never yank a running timer or clobber something being typed. */
-const pendingRenders = {
-  workout: false,
-  routine: false,
-  activities: false,
-  compare: false
-};
-
-let flushTimer = null;
-const lastAnnounced = {};
-
 const globalStatus = document.getElementById("globalStatus");
 
 const setupScreen = document.getElementById("setupScreen");
@@ -1670,8 +1614,7 @@ const authStatus = document.getElementById("authStatus");
 
 const headerProfileName = document.getElementById("headerProfileName");
 const headerEmail = document.getElementById("headerEmail");
-const liveStatus = document.getElementById("liveStatus");
-const liveStatusText = document.getElementById("liveStatusText");
+const refreshBtn = document.getElementById("refreshBtn");
 const signOutBtn = document.getElementById("signOutBtn");
 const navButtons = document.querySelectorAll(".nav-btn");
 const screens = document.querySelectorAll(".screen");
@@ -1875,7 +1818,6 @@ async function handleSession(nextSession) {
   session = nextSession;
 
   if (!session) {
-    teardownRealtime();
     authUserId = null;
     myProfile = null;
     showAuth();
@@ -1887,8 +1829,7 @@ async function handleSession(nextSession) {
 
   if (sameUser && myProfile) {
     /* A token refresh, not a new sign in. Reloading here would stop a running
-       timer and wipe typed input, so just hand the new token to the socket. */
-    refreshRealtimeAuth();
+       timer and wipe typed input, so leave the screen alone. */
     return;
   }
 
@@ -1967,7 +1908,6 @@ async function enterApp() {
   renderAll();
   showApp();
   showScreen(currentScreen);
-  subscribeRealtime();
 }
 
 function renderHeader() {
@@ -2174,8 +2114,6 @@ function showScreen(name) {
     button.classList.toggle("active", button.dataset.screen === name);
   });
 
-  pendingRenders[name] = false;
-
   if (name === "workout") renderWorkoutAll();
   if (name === "routine") renderRoutine();
   if (name === "activities") renderActivityLibrary();
@@ -2337,6 +2275,15 @@ workoutDate.addEventListener("change", () => {
 
 /* ---------- timers ---------- */
 
+/* A rebuild held back by a running timer runs as soon as the timer is idle,
+   whether it was paused, reset or finished. */
+function flushStaleWorkout() {
+  if (!workoutStale || activeTimer.running) return;
+
+  workoutStale = false;
+  renderWorkoutAll(true);
+}
+
 function stopActiveTimer() {
   if (activeTimer.interval) {
     clearInterval(activeTimer.interval);
@@ -2349,7 +2296,7 @@ function stopActiveTimer() {
     interval: null
   };
 
-  flushRenders();
+  flushStaleWorkout();
 }
 
 function currentTimerSeconds(itemId) {
@@ -2416,6 +2363,7 @@ function startPauseTimer(item) {
     clearInterval(activeTimer.interval);
     activeTimer.running = false;
     updateTimerDisplay(item.id);
+    flushStaleWorkout();
     return;
   }
 
@@ -2447,6 +2395,7 @@ function resetTimer(item) {
   activeTimer.interval = null;
 
   updateTimerDisplay(item.id);
+  flushStaleWorkout();
 }
 
 /* ---------- saving ---------- */
@@ -4098,398 +4047,55 @@ comparePeriodSelect.addEventListener("change", () => {
   renderCompare();
 });
 
-/* ---------- live sync ---------- */
+/* ---------- refresh ---------- */
 
-function setLiveStatus(state, label) {
-  liveStatus.className = `live-badge ${state}`;
-  liveStatusText.textContent = label;
-}
+/* A running timer outlives a refresh. Rebuilding the workout list would tear
+   down the element the interval is ticking into, so the rebuild waits. */
+let workoutStale = false;
 
-/* Only an element holding unsaved typed input blocks a render. A focused
-   button or checkbox holds nothing worth protecting, and treating it as
-   editable would wedge deferred renders until the next click elsewhere. */
-function focusInside(node) {
-  const active = document.activeElement;
-
-  if (!node || !active || active === document.body) return false;
-  if (!node.contains(active)) return false;
-  if (active.isContentEditable) return true;
-
-  const tag = active.tagName;
-
-  if (tag === "SELECT" || tag === "TEXTAREA") return true;
-  if (tag !== "INPUT") return false;
-
-  return active.type !== "checkbox" && active.type !== "button" && active.type !== "submit";
-}
-
-/* A running timer or a half typed distance is worth more than a fresh render,
-   so the workout screen only rebuilds when nothing is in flight. */
-function canRenderWorkout() {
-  return !activeTimer.running && !focusInside(workoutCards);
-}
-
-function flushRenders() {
-  if (pendingRenders.workout && currentScreen === "workout" && canRenderWorkout()) {
-    pendingRenders.workout = false;
-    renderWorkoutAll(true);
-  }
-
-  if (pendingRenders.routine && currentScreen === "routine" && !focusInside(routineList)) {
-    pendingRenders.routine = false;
-    renderRoutine();
-  }
-
-  if (
-    pendingRenders.activities &&
-    currentScreen === "activities" &&
-    !focusInside(activityList) &&
-    !focusInside(activityForm)
-  ) {
-    pendingRenders.activities = false;
-    renderActivityLibrary();
-  }
-
-  if (pendingRenders.compare && currentScreen === "compare") {
-    pendingRenders.compare = false;
-    renderCompare();
-  }
-}
-
-/* Coalesced so a burst of set ticks from the other phone costs one render. */
-function requestRender(name) {
-  pendingRenders[name] = true;
-
-  if (flushTimer) return;
-
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    flushRenders();
-  }, 200);
-}
-
-document.addEventListener("focusout", () => {
-  setTimeout(flushRenders, 0);
-});
-
-function upsertLocal(list, row) {
-  const index = list.findIndex((entry) => entry.id === row.id);
-
-  if (index >= 0) {
-    list[index] = row;
-    return list;
-  }
-
-  list.push(row);
-  return list;
-}
-
-function liveValueText(row) {
-  if (row.type === "strength") {
-    const count = strengthSetsCount(row.strength_sets);
-    return `${count} ${count === 1 ? "set" : "sets"}`;
-  }
-
-  if (row.type === "distance") {
-    return `${round1(nonNegativeNumber(row.distance_km, 0))} km`;
-  }
-
-  if (row.type === "timer") {
-    return formatDuration(nonNegativeInt(row.duration_seconds, 0));
-  }
-
-  return "";
-}
-
-/* The other baddie training is worth knowing about, but a set by set play by
-   play is noise, so each person can interrupt at most once a minute. */
-function announceOtherProfile(row) {
-  const profile = profiles.find((entry) => entry.id === row.profile_id);
-
-  if (!profile) return;
-
-  const now = Date.now();
-
-  if (lastAnnounced[profile.id] && now - lastAnnounced[profile.id] < 60000) {
-    return;
-  }
-
-  lastAnnounced[profile.id] = now;
-  showStatus(`${profile.name} just logged ${row.name}: ${liveValueText(row)}`);
-}
-
-/* Patches one workout card in place instead of rebuilding the screen, so a
-   log arriving from your other device does not disturb what you are doing. */
-function syncCardFromLog(item) {
-  const log = getLogRow(myProfile.id, workoutDateValue, item.id);
-
-  if (item.type === "strength") {
-    const sets = normaliseStrengthSets(log?.strength_sets, positiveInt(item.sets, 1));
-
-    sets.forEach((value, index) => {
-      const row = document.getElementById(`set-row-${item.id}-${index}`);
-
-      if (!row) return;
-
-      const input = row.querySelector('input[type="checkbox"]');
-
-      if (input && input !== document.activeElement) {
-        input.checked = value;
-      }
-
-      row.classList.toggle("done", value);
-    });
-  }
-
-  if (item.type === "distance") {
-    const input = document.getElementById(`distance-${item.id}`);
-    const km = nonNegativeNumber(log?.distance_km, 0);
-
-    if (input && input !== document.activeElement) {
-      input.value = km > 0 ? round1(km) : "";
-    }
-  }
-
-  if (item.type === "timer" && activeTimer.itemId !== item.id) {
-    updateTimerDisplay(item.id);
-  }
-
-  updateCardCompletion(item);
-  updateCardStats(item);
-}
-
-function applyLiveLog(row) {
-  if (currentScreen !== "workout") {
-    requestRender("workout");
-    return;
-  }
-
-  renderDayTabs();
-  renderDayHero();
-  updateWorkoutProgress();
-
-  if (row.log_date !== workoutDateValue) return;
-
-  const item = routineItems.find((entry) => entry.id === row.routine_item_id);
-
-  if (item && item.day === selectedDayId) {
-    syncCardFromLog(item);
-  }
-}
-
-function handleLogChange(payload) {
-  const row = payload.eventType === "DELETE" ? payload.old : payload.new;
-
-  if (!row || !row.id) return;
-
-  if (payload.eventType === "DELETE") {
-    logs = logs.filter((log) => log.id !== row.id);
-  } else {
-    logs = upsertLocal(logs, row);
-  }
-
-  requestRender("compare");
-
-  if (row.profile_id === myProfile.id) {
-    applyLiveLog(row);
-    return;
-  }
-
-  requestRender("workout");
-
-  if (payload.eventType !== "DELETE") {
-    announceOtherProfile(row);
-  }
-}
-
-function handleRoutineChange(payload) {
-  const row = payload.eventType === "DELETE" ? payload.old : payload.new;
-
-  if (!row || !row.id) return;
-
-  /* Only your own routine drives your screens. Someone else reordering their
-     Tuesday changes nothing here. */
-  if (row.profile_id !== myProfile.id) return;
-
-  if (payload.eventType === "DELETE") {
-    routineItems = routineItems.filter((item) => item.id !== row.id);
-  } else {
-    routineItems = upsertLocal(routineItems, row);
-  }
-
-  requestRender("routine");
-  requestRender("workout");
-
-  if (currentScreen === "workout" && !canRenderWorkout()) {
-    showStatus("Routine changed on another device. It will update when you are done here.");
-  }
-}
-
-function handleActivityChange(payload) {
-  const row = payload.eventType === "DELETE" ? payload.old : payload.new;
-
-  if (!row || !row.id) return;
-
-  if (payload.eventType === "DELETE") {
-    activities = activities.filter((activity) => activity.id !== row.id);
-  } else {
-    activities = upsertLocal(activities, row);
-  }
-
-  activities.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-
-  requestRender("activities");
-  requestRender("routine");
-  requestRender("compare");
-}
-
-function handleProfileChange(payload) {
-  const row = payload.eventType === "DELETE" ? payload.old : payload.new;
-
-  if (!row || !row.id) return;
-
-  if (payload.eventType === "DELETE") {
-    profiles = profiles.filter((profile) => profile.id !== row.id);
-  } else {
-    profiles = upsertLocal(profiles, row);
-  }
-
-  profiles.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-
-  if (myProfile && row.id === myProfile.id && payload.eventType !== "DELETE") {
-    myProfile = row;
-    renderHeader();
-  }
-
-  requestRender("compare");
-}
-
-/* Events that arrive while the socket is down are simply gone, so every
-   reconnect and every return to the tab refetches instead of trusting the
-   local copy. */
 async function resyncAll() {
   if (!myProfile || !supabaseClient) return;
 
-  try {
-    await Promise.all([
-      loadProfiles(),
-      loadActivities(),
-      loadRoutine(),
-      loadLogs()
-    ]);
+  await Promise.all([
+    loadProfiles(),
+    loadActivities(),
+    loadRoutine(),
+    loadLogs()
+  ]);
 
-    requestRender("workout");
-    requestRender("routine");
-    requestRender("activities");
-    requestRender("compare");
+  renderHeader();
+
+  if (activeTimer.running) {
+    workoutStale = true;
+  } else {
+    workoutStale = false;
+    renderWorkoutAll(true);
+  }
+
+  renderRoutine();
+  renderActivityLibrary();
+  renderCompare();
+}
+
+refreshBtn.addEventListener("click", async () => {
+  if (refreshBtn.disabled) return;
+
+  refreshBtn.disabled = true;
+  refreshBtn.textContent = "Refreshing";
+
+  try {
+    await resyncAll();
+
+    showStatus(
+      workoutStale
+        ? "Refreshed. The workout list updates when the timer stops."
+        : "Refreshed."
+    );
   } catch (error) {
     showStatus(error.message || String(error));
-  }
-}
-
-function teardownRealtime() {
-  if (realtimeRetry) {
-    clearTimeout(realtimeRetry);
-    realtimeRetry = null;
-  }
-
-  if (realtimeChannel && supabaseClient) {
-    supabaseClient.removeChannel(realtimeChannel);
-  }
-
-  realtimeChannel = null;
-  realtimeAttempts = 0;
-  setLiveStatus("offline", "Offline");
-}
-
-function refreshRealtimeAuth() {
-  const token = session?.access_token;
-
-  if (!token || !supabaseClient?.realtime?.setAuth) return;
-
-  try {
-    supabaseClient.realtime.setAuth(token);
-  } catch (error) {
-    /* Older clients refresh the socket token themselves. */
-  }
-}
-
-function scheduleRealtimeRetry() {
-  if (realtimeRetry) return;
-
-  realtimeAttempts += 1;
-
-  const delay = Math.min(30000, 2000 * 2 ** (realtimeAttempts - 1));
-
-  realtimeRetry = setTimeout(() => {
-    realtimeRetry = null;
-    subscribeRealtime();
-  }, delay);
-}
-
-function subscribeRealtime() {
-  if (!supabaseClient || !myProfile) return;
-
-  if (realtimeRetry) {
-    clearTimeout(realtimeRetry);
-    realtimeRetry = null;
-  }
-
-  if (realtimeChannel) {
-    supabaseClient.removeChannel(realtimeChannel);
-    realtimeChannel = null;
-  }
-
-  setLiveStatus("connecting", "Connecting");
-  refreshRealtimeAuth();
-
-  const on = (table, handler) => ({ event: "*", schema: "public", table, handler });
-
-  realtimeChannel = supabaseClient.channel("becoming-baddies");
-
-  [
-    on("logs", handleLogChange),
-    on("routine_items", handleRoutineChange),
-    on("activities", handleActivityChange),
-    on("profiles", handleProfileChange)
-  ].forEach((entry) => {
-    realtimeChannel.on(
-      "postgres_changes",
-      { event: entry.event, schema: entry.schema, table: entry.table },
-      (payload) => {
-        try {
-          entry.handler(payload);
-        } catch (error) {
-          showStatus(error.message || String(error));
-        }
-      }
-    );
-  });
-
-  realtimeChannel.subscribe((status) => {
-    if (status === "SUBSCRIBED") {
-      const reconnected = realtimeAttempts > 0;
-      realtimeAttempts = 0;
-      setLiveStatus("live", "Live");
-
-      if (reconnected) resyncAll();
-      return;
-    }
-
-    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-      setLiveStatus("offline", "Offline");
-      scheduleRealtimeRetry();
-    }
-  });
-}
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible" || !myProfile) return;
-
-  resyncAll();
-
-  if (!realtimeChannel || realtimeChannel.state !== "joined") {
-    subscribeRealtime();
+  } finally {
+    refreshBtn.disabled = false;
+    refreshBtn.textContent = "Refresh";
   }
 });
 
