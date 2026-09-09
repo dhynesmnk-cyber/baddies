@@ -539,6 +539,23 @@ h3 {
   margin-bottom: 12px;
 }
 
+.workout-add {
+  margin-bottom: 14px;
+}
+
+.add-oneoff-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.add-oneoff-panel select {
+  flex: 1;
+  min-width: 160px;
+}
+
 .date-label {
   display: flex;
   align-items: center;
@@ -655,6 +672,38 @@ h3 {
   justify-content: space-between;
   align-items: flex-start;
   gap: 10px;
+}
+
+.card-head-titles {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.one-off-remove {
+  flex: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.one-off-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.one-off-badge {
+  margin: -4px 0 8px;
+  color: var(--gold);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
 }
 
 .workout-card h3 {
@@ -829,10 +878,18 @@ h3 {
   transition: width 300ms linear;
 }
 
-.distance-input {
-  width: 100%;
-  font-size: 1.15rem;
+.distance-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 8px;
+}
+
+.distance-input,
+.distance-minutes-input {
+  flex: 1;
+  min-width: 140px;
+  font-size: 1.15rem;
 }
 
 .empty {
@@ -1407,6 +1464,15 @@ h3 {
         <div id="dayProgress" class="day-progress"></div>
       </div>
 
+      <div class="workout-add">
+        <button id="addOneOffBtn" class="btn secondary small" type="button">+ Add something for today</button>
+        <div id="addOneOffPanel" class="add-oneoff-panel hidden">
+          <select id="addOneOffSelect"></select>
+          <button id="addOneOffConfirmBtn" class="btn small" type="button">Add</button>
+          <button id="addOneOffCancelBtn" class="btn secondary small" type="button">Cancel</button>
+        </div>
+      </div>
+
       <div id="workoutCards"></div>
     </section>
 
@@ -1631,6 +1697,12 @@ const dayTabs = document.getElementById("dayTabs");
 const dayProgress = document.getElementById("dayProgress");
 const workoutCards = document.getElementById("workoutCards");
 
+const addOneOffBtn = document.getElementById("addOneOffBtn");
+const addOneOffPanel = document.getElementById("addOneOffPanel");
+const addOneOffSelect = document.getElementById("addOneOffSelect");
+const addOneOffConfirmBtn = document.getElementById("addOneOffConfirmBtn");
+const addOneOffCancelBtn = document.getElementById("addOneOffCancelBtn");
+
 const starterRoutineBtn = document.getElementById("starterRoutineBtn");
 const routineList = document.getElementById("routineList");
 
@@ -1710,6 +1782,13 @@ function formatDuration(seconds) {
   }
 
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/* Pace in time per kilometre. Needs both a real distance and a real time,
+   otherwise a stray tap could divide by zero or report a meaningless number. */
+function formatPace(seconds, km) {
+  if (!nonNegativeInt(seconds, 0) || !nonNegativeNumber(km, 0)) return "";
+  return `${formatDuration(Math.round(seconds / km))} / km`;
 }
 
 function toDateKey(date) {
@@ -2129,10 +2208,24 @@ function renderAll() {
 
 /* ---------- workout ---------- */
 
+/* Recurring items only - the weekly template. One-offs are date bound, not day
+   bound, and are kept out of it so they do not repeat next week. */
 function getDayItems(dayId) {
   return routineItems
-    .filter((item) => item.day === dayId)
+    .filter((item) => !item.one_off_date && item.day === dayId)
     .sort((a, b) => (a.position || 0) - (b.position || 0));
+}
+
+function getOneOffItems(dateKey) {
+  return routineItems
+    .filter((item) => item.one_off_date === dateKey)
+    .sort((a, b) => (a.position || 0) - (b.position || 0));
+}
+
+/* What actually shows on the workout screen for a given day tab and date: the
+   recurring plan for that weekday, plus anything added just for that date. */
+function getWorkoutItems(dayId, dateKey) {
+  return [...getDayItems(dayId), ...getOneOffItems(dateKey)];
 }
 
 function getLogRow(profileId, dateKey, itemId) {
@@ -2153,11 +2246,13 @@ function strengthSetsCount(sets) {
   return Array.isArray(sets) ? sets.filter(Boolean).length : 0;
 }
 
-function countDay(profileId, dateKey, dayId) {
+function countDay(profileId, dateKey, dayId, includeOneOff) {
   let done = 0;
   let total = 0;
 
-  getDayItems(dayId).forEach((item) => {
+  const items = includeOneOff ? getWorkoutItems(dayId, dateKey) : getDayItems(dayId);
+
+  items.forEach((item) => {
     const log = getLogRow(profileId, dateKey, item.id);
 
     if (item.type === "strength") {
@@ -2185,9 +2280,10 @@ function renderDayTabs() {
   dayTabs.innerHTML = "";
 
   const todayDayId = dayIdFromDateKey(todayKey());
+  const actualDayId = dayIdFromDateKey(workoutDateValue);
 
   DAY_ORDER.forEach((day) => {
-    const count = countDay(myProfile.id, workoutDateValue, day.id);
+    const count = countDay(myProfile.id, workoutDateValue, day.id, day.id === actualDayId);
     const ratio = count.total > 0 ? count.done / count.total : 0;
 
     let classes = "day-tab";
@@ -2218,7 +2314,7 @@ function renderDayTabs() {
 }
 
 function renderDayHero() {
-  const count = countDay(myProfile.id, workoutDateValue, selectedDayId);
+  const count = countDay(myProfile.id, workoutDateValue, selectedDayId, true);
   const ratio = count.total > 0 ? count.done / count.total : 0;
 
   ringFill.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - ratio));
@@ -2251,7 +2347,7 @@ function renderDayHero() {
 }
 
 function updateWorkoutProgress() {
-  const count = countDay(myProfile.id, workoutDateValue, selectedDayId);
+  const count = countDay(myProfile.id, workoutDateValue, selectedDayId, true);
 
   dayProgress.textContent = count.total === 0
     ? "Rest day"
@@ -2260,6 +2356,7 @@ function updateWorkoutProgress() {
 
 function renderWorkoutAll(preserveDrafts) {
   workoutDate.value = workoutDateValue;
+  closeOneOffPanel();
   renderDayTabs();
   renderDayHero();
   updateWorkoutProgress();
@@ -2453,11 +2550,16 @@ async function saveStrengthSet(item, setIndex, checked) {
   await upsertLog(row);
 }
 
-async function saveDistanceLog(item, km) {
+/* seconds is optional. Passing null keeps whatever time was saved before, so
+   the +km quick add buttons do not wipe out a time already recorded. */
+async function saveDistanceLog(item, km, seconds) {
   const existing = getLogRow(myProfile.id, workoutDateValue, item.id);
 
   const row = baseLogRow(item, "distance");
   row.distance_km = round1(km);
+  row.duration_seconds = seconds === null
+    ? nonNegativeInt(existing?.duration_seconds, 0) || null
+    : nonNegativeInt(seconds, 0) || null;
 
   if (existing?.id) row.id = existing.id;
 
@@ -2494,6 +2596,7 @@ function getHistoryForItem(profileId, item) {
     if (activityKeyForLog(log) !== key) return;
 
     let value = 0;
+    let seconds = 0;
 
     if (item.type === "strength" && log.type === "strength") {
       value = strengthSetsCount(log.strength_sets);
@@ -2501,6 +2604,7 @@ function getHistoryForItem(profileId, item) {
 
     if (item.type === "distance" && log.type === "distance") {
       value = nonNegativeNumber(log.distance_km, 0);
+      seconds = nonNegativeInt(log.duration_seconds, 0);
     }
 
     if (item.type === "timer" && log.type === "timer") {
@@ -2508,13 +2612,16 @@ function getHistoryForItem(profileId, item) {
     }
 
     if (value > 0) {
-      byDate[log.log_date] = (byDate[log.log_date] || 0) + value;
+      const entry = byDate[log.log_date] || { value: 0, seconds: 0 };
+      entry.value += value;
+      entry.seconds += seconds;
+      byDate[log.log_date] = entry;
     }
   });
 
   return Object.entries(byDate)
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([dateKey, value]) => ({ dateKey, value }));
+    .map(([dateKey, entry]) => ({ dateKey, value: entry.value, seconds: entry.seconds }));
 }
 
 function logPoints(log) {
@@ -2646,6 +2753,23 @@ function renderCardStats(container, item) {
   rows.append(makeStat("Last done", formatDateKey(last.dateKey)));
   rows.append(makeStat("Sessions", String(history.length)));
   rows.append(makeStat("Best", formatItemValue(item, best)));
+
+  if (item.type === "distance") {
+    const timed = history.filter((entry) => entry.seconds > 0);
+
+    if (last.seconds > 0) {
+      rows.append(makeStat("Last pace", formatPace(last.seconds, last.value)));
+    }
+
+    if (timed.length > 0) {
+      const bestPaceEntry = timed.reduce((fastest, entry) =>
+        entry.seconds / entry.value < fastest.seconds / fastest.value ? entry : fastest
+      );
+
+      rows.append(makeStat("Best pace", formatPace(bestPaceEntry.seconds, bestPaceEntry.value)));
+    }
+  }
+
   container.append(rows);
 
   const recent = history.slice(-10);
@@ -2666,7 +2790,9 @@ function renderCardStats(container, item) {
 
     bar.style.height = `${Math.max(8, Math.round((entry.value / max) * 100))}%`;
     bar.style.animationDelay = `${index * 35}ms`;
-    bar.title = `${formatDateKey(entry.dateKey)}: ${formatItemValue(item, entry.value)}`;
+
+    const pace = entry.seconds > 0 ? `, ${formatPace(entry.seconds, entry.value)}` : "";
+    bar.title = `${formatDateKey(entry.dateKey)}: ${formatItemValue(item, entry.value)}${pace}`;
 
     col.appendChild(bar);
     mini.appendChild(col);
@@ -2727,7 +2853,7 @@ function refreshWorkoutAfterLog(item) {
 /* A distance typed but not yet saved is only in the DOM. A live rebuild would
    throw it away, so it is carried across. */
 function snapshotDistanceDrafts() {
-  const drafts = {};
+  const drafts = { km: {}, minutes: {} };
 
   workoutCards.querySelectorAll("input.distance-input").forEach((input) => {
     const itemId = input.id.replace("distance-", "");
@@ -2738,7 +2864,20 @@ function snapshotDistanceDrafts() {
     const shown = saved > 0 ? String(round1(saved)) : "";
 
     if (input.value !== shown) {
-      drafts[itemId] = input.value;
+      drafts.km[itemId] = input.value;
+    }
+  });
+
+  workoutCards.querySelectorAll("input.distance-minutes-input").forEach((input) => {
+    const itemId = input.id.replace("distance-minutes-", "");
+    const saved = nonNegativeInt(
+      getLogRow(myProfile.id, workoutDateValue, itemId)?.duration_seconds,
+      0
+    );
+    const shown = saved > 0 ? String(round1(saved / 60)) : "";
+
+    if (input.value !== shown) {
+      drafts.minutes[itemId] = input.value;
     }
   });
 
@@ -2746,12 +2885,12 @@ function snapshotDistanceDrafts() {
 }
 
 function renderWorkoutCards(preserveDrafts) {
-  const drafts = preserveDrafts ? snapshotDistanceDrafts() : {};
+  const drafts = preserveDrafts ? snapshotDistanceDrafts() : { km: {}, minutes: {} };
 
   stopActiveTimer();
   workoutCards.innerHTML = "";
 
-  const items = getDayItems(selectedDayId);
+  const items = getWorkoutItems(selectedDayId, workoutDateValue);
 
   if (items.length === 0) {
     const card = el("div", "card");
@@ -2770,8 +2909,24 @@ function renderWorkoutCards(preserveDrafts) {
     card.style.animationDelay = `${itemIndex * 45}ms`;
 
     const head = el("div", "card-head");
-    head.append(el("h3", "", item.name), el("span", "done-stamp", "DONE"));
+    const titles = el("div", "card-head-titles");
+    titles.append(el("h3", "", item.name), el("span", "done-stamp", "DONE"));
+    head.append(titles);
+
+    if (item.one_off_date) {
+      const removeBtn = el("button", "one-off-remove", "Remove");
+      removeBtn.type = "button";
+      removeBtn.title = "Remove from today";
+      removeBtn.dataset.action = "remove-oneoff";
+      removeBtn.dataset.itemId = item.id;
+      head.append(removeBtn);
+    }
+
     card.append(head);
+
+    if (item.one_off_date) {
+      card.append(el("p", "one-off-badge", "Added just for today"));
+    }
 
     card.append(el("p", "target", targetText(item)));
 
@@ -2812,10 +2967,11 @@ function renderWorkoutCards(preserveDrafts) {
     }
 
     if (item.type === "distance") {
-      const existing = nonNegativeNumber(
-        getLogRow(myProfile.id, workoutDateValue, item.id)?.distance_km,
-        0
-      );
+      const existingLog = getLogRow(myProfile.id, workoutDateValue, item.id);
+      const existingKm = nonNegativeNumber(existingLog?.distance_km, 0);
+      const existingSeconds = nonNegativeInt(existingLog?.duration_seconds, 0);
+
+      const fields = el("div", "distance-fields");
 
       const input = document.createElement("input");
       input.type = "number";
@@ -2823,16 +2979,31 @@ function renderWorkoutCards(preserveDrafts) {
       input.step = "0.1";
       input.className = "distance-input";
       input.id = `distance-${item.id}`;
-      input.placeholder = "Distance in km";
-      input.value = Object.prototype.hasOwnProperty.call(drafts, item.id)
-        ? drafts[item.id]
-        : existing > 0
-          ? round1(existing)
+      input.placeholder = "km";
+      input.value = Object.prototype.hasOwnProperty.call(drafts.km, item.id)
+        ? drafts.km[item.id]
+        : existingKm > 0
+          ? round1(existingKm)
           : "";
+
+      const minutesInput = document.createElement("input");
+      minutesInput.type = "number";
+      minutesInput.min = "0";
+      minutesInput.step = "0.1";
+      minutesInput.className = "distance-minutes-input";
+      minutesInput.id = `distance-minutes-${item.id}`;
+      minutesInput.placeholder = "min (optional)";
+      minutesInput.value = Object.prototype.hasOwnProperty.call(drafts.minutes, item.id)
+        ? drafts.minutes[item.id]
+        : existingSeconds > 0
+          ? round1(existingSeconds / 60)
+          : "";
+
+      fields.append(input, minutesInput);
 
       const controls = el("div", "controls");
 
-      const saveBtn = el("button", "btn", "Save distance");
+      const saveBtn = el("button", "btn", "Save");
       saveBtn.type = "button";
       saveBtn.dataset.action = "distance-save";
       saveBtn.dataset.itemId = item.id;
@@ -2850,7 +3021,7 @@ function renderWorkoutCards(preserveDrafts) {
       addOne.dataset.add = "1";
 
       controls.append(saveBtn, addHalf, addOne);
-      card.append(input, controls);
+      card.append(fields, controls);
     }
 
     if (item.type === "timer") {
@@ -2941,10 +3112,17 @@ workoutCards.addEventListener("click", async (event) => {
   try {
     if (action === "distance-save") {
       const input = document.getElementById(`distance-${item.id}`);
+      const minutesInput = document.getElementById(`distance-minutes-${item.id}`);
       const value = nonNegativeNumber(input.value, 0);
-      await saveDistanceLog(item, value);
+      const seconds = minutesInput.value.trim()
+        ? Math.round(nonNegativeNumber(minutesInput.value, 0) * 60)
+        : null;
+
+      await saveDistanceLog(item, value, seconds);
       refreshWorkoutAfterLog(item);
-      showStatus(`${item.name} saved: ${round1(value)} km.`);
+
+      const pace = seconds ? ` (${formatPace(seconds, value)})` : "";
+      showStatus(`${item.name} saved: ${round1(value)} km${pace}.`);
     }
 
     if (action === "distance-add") {
@@ -2974,6 +3152,95 @@ workoutCards.addEventListener("click", async (event) => {
     if (action === "timer-reset") {
       resetTimer(item);
     }
+
+    if (action === "remove-oneoff") {
+      if (!confirm(`Remove ${item.name} from today?`)) return;
+
+      const { error } = await supabaseClient
+        .from("routine_items")
+        .delete()
+        .eq("id", item.id);
+
+      if (error) throw error;
+
+      routineItems = routineItems.filter((entry) => entry.id !== item.id);
+      renderWorkoutAll();
+      showStatus(`${item.name} removed from today.`);
+    }
+  } catch (error) {
+    showStatus(error.message || String(error));
+  }
+});
+
+/* ---------- add for today ---------- */
+
+function populateOneOffSelect() {
+  addOneOffSelect.innerHTML = "";
+
+  activities.forEach((activity) => {
+    const option = document.createElement("option");
+    option.value = activity.id;
+    option.textContent = `${activity.name} (${activity.type})`;
+    addOneOffSelect.appendChild(option);
+  });
+}
+
+function openOneOffPanel() {
+  if (activities.length === 0) {
+    showStatus("No activities in the library yet. Add one on the Activities screen first.");
+    return;
+  }
+
+  populateOneOffSelect();
+  addOneOffPanel.classList.remove("hidden");
+  addOneOffBtn.classList.add("hidden");
+}
+
+function closeOneOffPanel() {
+  addOneOffPanel.classList.add("hidden");
+  addOneOffBtn.classList.remove("hidden");
+}
+
+addOneOffBtn.addEventListener("click", openOneOffPanel);
+addOneOffCancelBtn.addEventListener("click", closeOneOffPanel);
+
+addOneOffConfirmBtn.addEventListener("click", async () => {
+  const activity = activities.find((entry) => entry.id === addOneOffSelect.value);
+
+  if (!activity) {
+    showStatus("Pick an activity first.");
+    return;
+  }
+
+  try {
+    const items = getWorkoutItems(selectedDayId, workoutDateValue);
+    const nextPosition = items.reduce((max, item) => Math.max(max, item.position || 0), -1) + 1;
+
+    const row = {
+      profile_id: myProfile.id,
+      day: dayIdFromDateKey(workoutDateValue),
+      position: nextPosition,
+      one_off_date: workoutDateValue,
+      activity_id: activity.id,
+      name: activity.name,
+      type: activity.type,
+      sets: activity.sets,
+      reps: activity.reps,
+      rest_seconds: activity.rest_seconds,
+      target_km: activity.target_km,
+      target_seconds: activity.target_seconds
+    };
+
+    const { error } = await supabaseClient
+      .from("routine_items")
+      .insert(row);
+
+    if (error) throw error;
+
+    await loadRoutine();
+    closeOneOffPanel();
+    renderWorkoutAll();
+    showStatus(`${activity.name} added for today.`);
   } catch (error) {
     showStatus(error.message || String(error));
   }
@@ -3081,7 +3348,8 @@ function makeRoutineField(labelText, type, field, value, step) {
 function renderRoutine() {
   routineList.innerHTML = "";
 
-  starterRoutineBtn.style.display = routineItems.length === 0 ? "inline-flex" : "none";
+  const recurringCount = routineItems.filter((item) => !item.one_off_date).length;
+  starterRoutineBtn.style.display = recurringCount === 0 ? "inline-flex" : "none";
 
   DAY_ORDER.forEach((day) => {
     const dayCard = el("div", "day-card");
