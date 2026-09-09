@@ -24,11 +24,13 @@ Both names unlock with **9876** out of the box.
 ## What it does
 
 - **Workout** - pick a date, work the card list for that weekday. Strength logs completed
-  sets, Run and Swim log kilometres, Skipping, Boxing and Plank log time on a live timer.
-  Every change is written straight to Supabase.
+  sets. Run and Swim log kilometres, with an optional time alongside the distance - enter
+  both and the card works out your pace and tracks your best. Skipping, Boxing and Plank
+  log time on a live timer. Every change is written straight to Supabase.
 - **Routine** - a weekly plan per profile. Empty days are rest days. Add activities from
   the shared library, reorder them, override sets, reps, rest, target distance or target
-  time.
+  time. For anything that will not be a fixed weekly habit, **+ Add something for today**
+  on the Workout screen adds it just for that date without touching the weekly plan.
 - **Activities** - the shared exercise library. Adding a routine item copies the library
   settings into the routine item, so Dave and Angus can run the same exercise at different
   targets without rewriting each other's history.
@@ -49,6 +51,26 @@ Both names unlock with **9876** out of the box.
 - Timer progress bar against the target, and a pulsing display while running.
 - Head to head tug of war bar, crown for the leader, and per metric leader highlighting.
 - GitHub style consistency heatmap per person, tinted in that person's colour.
+
+### Distance and pace
+
+A distance card takes a kilometre figure and, optionally, a time. Save both and the card
+works out pace (time per km) and remembers your best. Leave the time blank and it behaves
+exactly as before - just a distance. The quick `+0.5 km` / `+1 km` buttons only touch the
+distance figure; whatever time is already saved for that day stays put until you save
+again. Typing `0` into the time field and saving clears a time you entered by mistake.
+
+This applies to any distance activity, so it works for Swim as much as Run.
+
+### Flexible days
+
+Routine items repeat weekly by day, which suits activities you actually do every week on
+the same day. For anything that changes week to week, **+ Add something for today** on the
+Workout screen adds one instance of any library activity to that specific date only - it
+does not touch the weekly plan and will not reappear next week unless you add it again.
+Each one carries an **Added just for today** badge and a **Remove** button on its card.
+History and stats for it are the same as for any routine item, keyed to the activity, so
+switching between a recurring habit and an occasional one does not lose anything.
 
 ### Refreshing
 
@@ -81,6 +103,10 @@ Change the `POINTS` constant near the top of the script to rebalance it. Everyth
 in Compare is like for like: sets against sets, km against km, minutes against minutes.
 
 ## Setup
+
+Already have a project running? `sql/schema.sql` is safe to re-run any time a change
+needs it - it only creates what is missing and never touches existing rows. If flexible
+days stopped working after an update, that is the sign to re-run it.
 
 1. Create a Supabase project.
 2. Open the **SQL Editor** and run [`sql/schema.sql`](sql/schema.sql). It creates the

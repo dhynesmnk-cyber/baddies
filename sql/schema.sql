@@ -5,8 +5,10 @@
 --   profiles       one per auth user. Everyone can read all profiles (that is the point
 --                  of a two person competition). You can only write your own.
 --   activities     shared library. Any signed in user can edit it.
---   routine_items  per profile weekly plan. Rows are snapshots of a library activity so
---                  Dave and Angus can use the same exercise with different targets.
+--   routine_items  per profile plan. Rows are snapshots of a library activity so Dave and
+--                  Angus can use the same exercise with different targets. Most rows repeat
+--                  weekly by day; a row with one_off_date set instead belongs to that single
+--                  date, for whatever does not fit a fixed weekly plan.
 --   logs           one row per profile / date / routine item. Upserted as you tick sets,
 --                  save a distance or stop a timer.
 
@@ -54,6 +56,10 @@ create table if not exists public.routine_items (
   target_seconds int not null default 0
 );
 
+-- Added after the initial release. On an existing project this is what actually
+-- brings the one-off feature in; re-running the file above this line is a no-op.
+alter table public.routine_items add column if not exists one_off_date date;
+
 create table if not exists public.logs (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references public.profiles(id) on delete cascade,
@@ -71,6 +77,10 @@ create table if not exists public.logs (
 
 create index if not exists routine_profile_day_idx
   on public.routine_items(profile_id, day, position);
+
+create index if not exists routine_profile_one_off_idx
+  on public.routine_items(profile_id, one_off_date)
+  where one_off_date is not null;
 
 create index if not exists logs_profile_date_idx
   on public.logs(profile_id, log_date);
